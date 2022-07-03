@@ -1,0 +1,184 @@
+#!/bin/sh -e
+#L:
+#L:  MIT License
+#L:  
+#l:  Bug reports, feature requests to gemini|https://harkadev.com/oss
+#l:  Copyright (c) 2022 Harkaitz Agirre, harkaitz.aguirre@gmail.com
+#L:
+#L:  Permission is hereby granted, free of charge, to any person obtaining
+#L:  a copy of this software and associated documentation files (the
+#L:  "Software"), to deal in the Software without restriction, including
+#L:  without limitation the rights to use, copy, modify, merge, publish,
+#L:  distribute, sublicense, and/or sell copies of the Software, and to
+#L:  permit persons to whom the Software is furnished to do so, subject to
+#L:  the following conditions:
+#L:
+#L:  The above copyright notice and this permission notice shall be
+#L:  included in all copies or substantial portions of the Software.
+#L:
+#L:  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#L:  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#L:  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#L:  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+#L:  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+#L:  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+#L:  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+##:
+#h: Usage: $0 ...
+#h:
+#h: Manage multiple GIT repositories without clutter.
+#h:
+#h: After cloning with *fork* you can set the default branch
+#h: by setting the `branch:BRANCH` tag..
+#h:
+#h: ... show               : Show configuration.
+#h: ... fork|f   URL [NAME]: Clone to *local repository* from URL.
+#h: ... create|c NAME DESC : Create bare in *local repository*.
+#h: ... desc|d   NAME DESC : Change bare's description file.
+#h: ... list|l             : List local repositories.
+#h: ... remote|r NAME      : Link to local repository.
+#h: ... clone    NAME [DIR]: Clone git project and print directory.
+##:
+. hmain
+. hlog
+. vrun
+. hfile
+hgit() {
+    local cmd="$1"
+    shift
+    case "${cmd}" in
+        show)     hgit_show_variables ;;
+        fork|f)   hgit_fork    "$@"   ;;
+        create|c) hgit_create  "$@"   ;;
+        desc|d)   hgit_desc    "$@"   ;;
+        list|l)   hgit_list           ;;
+        remote|r) hgit_remote  "$@"   ;;
+        clone)    hgit_clone   "$@"   ;;
+        *)        hlog error "Invalid argument: ${cmd}.";
+                  return 1;;
+    esac
+}
+hgit_show_variables() {
+    printf '%-30s : %s\n'                               \
+           HGIT_WORK_DIRECTORY "${HGIT_WORK_DIRECTORY}" \
+           HGIT_REPO_DIRECTORY "${HGIT_REPO_DIRECTORY}"
+}
+hgit_calc_variables() {
+    HGIT_WORK_DIRECTORY="${HGIT_WORK_DIRECTORY:-${HOME}/Projects}"
+    HGIT_REPO_DIRECTORY="${HGIT_REPO_DIRECTORY:-${HOME}/Documents/git}"
+}
+## -----------------------------------------------------------------------------
+hgit_get_repo_dir() { # NAME|URL
+    if test ! -n "${1}";then
+        echo      >&2
+        hgit_list >&2
+        echo      >&2
+        hlog error "Please specify a repository name."
+        return 1
+    fi
+    echo "${HGIT_REPO_DIRECTORY}/`basename "${1}" .git`.git"
+}
+hgit_get_repo_dir_that_exists() { # NAME
+    local repo="`hgit_get_repo_dir "${1}"`"
+    if test ! -n "${repo}";then
+        return 1
+    elif test ! -e "${repo}/HEAD";then
+        hlog error "No repository named ${1}." >&2
+        return 1
+    fi
+    echo "${repo}"
+}
+hgit_get_repo_that_doesnt_exists() { # NAME
+    local repo="`hgit_get_repo_dir "${1}"`"
+    if test ! -n "${repo}";then
+        return 1
+    elif test -e "${repo}";then
+        hlog error "Repository ${1} already exists." >&2
+        return 1
+    fi
+    echo "${repo}"
+}
+## -----------------------------------------------------------------------------
+hgit_gitdir_get_default_branch() { # DIR
+    local repo="${1:-`pwd`}" sed='s|.*\[branch:\(\]*\)\]|\1|p'
+    if test -f "${repo}/description";then
+        local branch="`sed -n "${sed_cmd}" "${repo}/description"`"
+    fi
+    echo "${branch:-master}"
+}
+hgit_gitdir_get_help_first_line() { # DIR
+    local repo="${1:-`pwd`}"
+    if test ! -f "${repo}/description";then
+        return 0
+    elif grep "^Unnamed repository" "${repo}/description" >/dev/null 2>&1;then
+        return 0
+    else
+        head -n 1 "${repo}/description"
+        return 0
+    fi
+}
+hgit_gitdir_get_branches() { # DIR
+    local repo="${1:-`pwd`}" pwd="`pwd`"
+    cd "${repo}"
+    git branch -r | sed '/HEAD/d'
+    cd "${pwd}"
+}
+## -----------------------------------------------------------------------------
+hgit_fork() { # URL [NAME]
+    local url="$1" name="$2"
+    if test ! -n "${url}";then
+        hlog error "Please specify an URL."
+        return 1
+    fi
+    local repo="`hgit_get_repo_that_doesnt_exists "${name:-${url}}"`"
+    if test ! -e "${repo}/HEAD";then
+        vrun mkdir -p "${HGIT_REPO_DIRECTORY}"
+        vrun git clone --bare "${url}" "${repo}"
+    fi
+}
+hgit_list() {
+    local d=
+    if test -d "${HGIT_REPO_DIRECTORY}";then
+        for d in `find "${HGIT_REPO_DIRECTORY}" -mindepth 1 -maxdepth 1 -type d | sort`;do
+            local n="`basename "${d}" .git`"
+            local h="`hgit_gitdir_get_help_first_line ${d}`"
+            printf '%-20s : %s\n' "${n}" "${h}"
+        done
+    fi
+}
+hgit_desc() { # NAME [DESC...]
+    local repo="`hgit_get_repo_dir_that_exists "$1"`"; test -n "${repo}"
+    shift
+    local desc="$*"
+    hlog "Editing ${repo}/description ..."
+    echo "${desc}" > "${repo}/description"
+}
+hgit_clone() { # NAME [DIR]
+    local repo="`hgit_get_repo_dir_that_exists "$1"`"; test -n "${repo}"
+    local work="${2:-${HGIT_WORK_DIRECTORY}/`basename "${repo}"`}"
+    if test ! -d "${work}/.git";then
+        vrun mkdir -p "`dirname "${work}"`"
+        vrun git clone -q "${repo}" "${work}"
+    fi
+    echo "${work}"
+}
+hgit_create() { # NAME [DESC...]
+    local repo="`hgit_get_repo_that_doesnt_exists "$1"`"; test -n "${repo}"
+    shift
+    vrun mkdir -p "${HGIT_REPO_DIRECTORY}"
+    vrun git init -q --bare "${repo}"
+    if test -n "$2";then
+        shift
+        hlog "Editing ${repo}/description ..."
+        echo "${*}" > "${repo}/description"
+    fi
+}
+hgit_remote() { # NAME
+    local repo="`hgit_get_repo_dir_that_exists "$1"`"; test -n "${repo}"
+    shift
+    git remote remove origin 2>/dev/null || true
+    vrun git remote add origin "${repo}"
+}
+## -----------------------------------------------------------------------------
+hgit_calc_variables
+hmain -f "hgit" hgit "$@"
