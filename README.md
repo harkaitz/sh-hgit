@@ -2,6 +2,11 @@
 
 Personal GIT repository management utility.
 
+## Dependencies
+
+- git
+- [sh-hutil](https://github.com/harkaitz/sh-hutil)
+
 ## Help
 
 hgit

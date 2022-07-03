@@ -181,4 +181,4 @@ hgit_remote() { # NAME
 }
 ## -----------------------------------------------------------------------------
 hgit_calc_variables
-hmain -f "hgit" hgit "$@"
+hmain -f "hgit" -r "git" hgit "$@"
