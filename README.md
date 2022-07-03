@@ -1,6 +1,6 @@
 # HGIT
 
-Personal GIT repository management utility.
+Personal local GIT repository management utility.
 
 ## Dependencies
 
